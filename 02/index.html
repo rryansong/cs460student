@@ -17,7 +17,7 @@
 
   // currently selected cube
   var SELECTED_CUBE = null;
-  // camera spin toggle (B key)
+  // camera spin toggle
   var ROTATE_CAMERA = false;
 
       window.onload = function() {
@@ -29,7 +29,7 @@
               // spin camera when enabled
               r.onRender = function() {
                 if (ROTATE_CAMERA) {
-                    r.camera.rotate([1, 0]);
+                    r.camera.rotate([0, 20]);
 
                 }
               };
@@ -90,6 +90,14 @@
                   ROTATE_CAMERA = !ROTATE_CAMERA;
                   console.log('Rotate camera:', ROTATE_CAMERA ? 'ON' : 'OFF');
                 }
+                else if (key === 'e') { // Rotate selected cube left (yaw) by 10 degrees around Y
+                  if (SELECTED_CUBE) {
+                    var angle = 10;
+                    SELECTED_CUBE.transform.rotateX(angle);
+                    r.render();
+                  }
+                }
+
                 else if (key === 'o') { // Download
                   if (typeof download === 'function') {
                     download();
