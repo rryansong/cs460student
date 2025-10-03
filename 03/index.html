@@ -23,10 +23,17 @@
 
     <script type="module">
 
-      import * as THREE from 'three';
-      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';      
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';      
 
-      var renderer, controls, scene, camera;
+  var renderer, controls, scene, camera;
+  var LASTOBJECT = null;
+  var isPlacing = false;
+  var COLOR_HOTPINK = 0xFF69B4;
+  var COLOR_GRASSGREEN = 0x7CFC00;
+  var TORUSES = [];
+  var FLICKERING = false;
+  var WIREFRAME = false;
 
       window.onload = function() {
 
@@ -48,31 +55,60 @@
 
 
 
-        renderer.domElement.onclick = function( e ){
-          
-            console.log('Yay! We clicked!');
+        // Use mousedown
+        renderer.domElement.onmousedown = function( e ){
 
-            var pixel_coords = new THREE.Vector2( e.clientX, e.clientY );
+            //place geometry when SHIFT is held; otherwise let OrbitControls handle it.
+            if ( !e.shiftKey ) {
+              return;
+            }
 
-            console.log('Pixel coords', pixel_coords);
+            // Temporarily disable controls
+            controls.enabled = false;
 
-            var vp_coords = new THREE.Vector2( 
-                        ( pixel_coords.x / window.innerWidth ) * 2 - 1,  //X
-                        -( pixel_coords.y / window.innerHeight ) * 2 + 1) // Y
+            var rect = renderer.domElement.getBoundingClientRect();
+            var ndc = new THREE.Vector2(
+              ( ( e.clientX - rect.left ) / rect.width ) * 2 - 1,
+              - ( ( e.clientY - rect.top ) / rect.height ) * 2 + 1
+            );
 
-            console.log('Viewport coords', vp_coords);
+            // Unproject a point and cast a ray to the invisible plane to find placement position
+            var ndcPoint = new THREE.Vector3( ndc.x, ndc.y, 0.5 );
+            var worldPoint = ndcPoint.clone().unproject( camera );
+            var dir = worldPoint.sub( camera.position ).normalize();
 
-            var vp_coords_near = new THREE.Vector3( vp_coords.x, vp_coords.y, 0);
+            var raycaster = new THREE.Raycaster( camera.position.clone(), dir );
+            var intersects = raycaster.intersectObject( invisible_plane );
 
+            if ( intersects.length === 0 ) {
+              controls.enabled = true;
+              return;
+            }
 
-            var raycaster = new THREE.Raycaster();
-            raycaster.setFromCamera(vp_coords_near, camera);
-            var intersects = raycaster.intersectObject(invisible_plane);
+            var hit = intersects[0].point;
 
-            console.log('Ray to Invisible Plane', intersects[0].point);
+            // create a new hotpink torus knot
+            var newTorusGeo = new THREE.TorusKnotGeometry( 10, 3, 100, 16, 2, 3 );
+            var newTorusMat = new THREE.MeshStandardMaterial({ color: 0xFF69B4, wireframe: WIREFRAME });
+            var newTorus = new THREE.Mesh( newTorusGeo, newTorusMat );
+            newTorus.position.copy( hit );
+            newTorus.rotation.x = Math.random() * Math.PI;
+            newTorus.rotation.y = Math.random() * Math.PI;
+            scene.add( newTorus );
 
-            // update cube position
-            cube.position.set(intersects[0].point.x, intersects[0].point.y, intersects[0].point.z);
+            TORUSES.push( newTorus );
+
+            LASTOBJECT = newTorus;
+            isPlacing = true;
+
+            // Re-enable controls when the mouse button is released and stop placing
+            var onMouseUp = function(){
+              controls.enabled = true;
+              isPlacing = false;
+              LASTOBJECT = LASTOBJECT;
+              window.removeEventListener('mouseup', onMouseUp);
+            };
+            window.addEventListener('mouseup', onMouseUp);
 
           };
 
@@ -85,13 +121,13 @@
         light.position.set( 10, 100, 10 );
         scene.add( light );
 
-        // configure cube
-        var geometry = new THREE.BoxGeometry( 20, 20, 20 );
-        var material = new THREE.MeshStandardMaterial({ color: 0xffffff, wireframe: true });
+  // configure a solid yellow torus
+  var geometry = new THREE.TorusKnotGeometry( 20, 6, 32, 100 );
+  var material = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
 
-        var cube = new THREE.Mesh( geometry, material );
+  var torus = new THREE.Mesh( geometry, material );
 
-        scene.add( cube );
+  scene.add( torus );
 
 
 
@@ -115,6 +151,37 @@
         // interaction
         controls = new OrbitControls( camera, renderer.domElement );
 
+        // Ensure OrbitControls is re-enabled on mouseup
+        renderer.domElement.onmouseup = function( e ){
+          controls.enabled = true;
+        };
+
+        // While placing, allow scaling the last placed object
+        renderer.domElement.onmousemove = function( e ){
+          if ( !isPlacing || !LASTOBJECT ) return;
+
+          // movementY is positive when moving down, negative when moving up
+          var movement = e.movementY || 0;
+          var sensitivity = 0.01;
+          var delta = -movement * sensitivity;
+          var prevScale = LASTOBJECT.scale.x;
+          var newScale = prevScale + delta;
+
+          // Detect crossing through zero and toggle color when that happens
+          if ( (prevScale > 0 && newScale <= 0) || (prevScale < 0 && newScale >= 0) ) {
+
+            var current = LASTOBJECT.material.color.getHex();
+            if ( current === COLOR_HOTPINK ) {
+              LASTOBJECT.material.color.set( COLOR_GRASSGREEN );
+            } else {
+              LASTOBJECT.material.color.set( COLOR_HOTPINK );
+            }
+          }
+
+          LASTOBJECT.scale.set( newScale, newScale, newScale );
+
+        };
+
         // call animation/rendering loop
         animate();
         
@@ -126,8 +193,51 @@
 
         // and here..
         controls.update();
+
+        // If flickering mode is active, randomize opacity for all tracked toruses
+        if ( FLICKERING ) {
+          for ( var i = 0; i < TORUSES.length; i++ ) {
+            var obj = TORUSES[i];
+            if ( obj && obj.material ) {
+              obj.material.transparent = true;
+              obj.material.opacity = Math.random();
+              obj.material.needsUpdate = true;
+            }
+          }
+        } else {
+          // ensure full opacity when not flickering
+          for ( var i = 0; i < TORUSES.length; i++ ) {
+            var obj = TORUSES[i];
+            if ( obj && obj.material ) {
+              obj.material.opacity = 1.0;
+              obj.material.transparent = false;
+              obj.material.needsUpdate = true;
+            }
+          }
+        }
+
         renderer.render( scene, camera );
         
+      };
+
+      // Toggle flickering with 'f' and wireframe with 'w'
+      window.onkeypress = function( e ){
+        if ( e.key === 'f' || e.key === 'F' ) {
+          FLICKERING = !FLICKERING;
+          console.log('Flickering:', FLICKERING);
+        }
+        if ( e.key === 'w' || e.key === 'W' ) {
+          WIREFRAME = !WIREFRAME;
+          console.log('Wireframe:', WIREFRAME);
+
+          for ( var i = 0; i < TORUSES.length; i++ ) {
+            var obj = TORUSES[i];
+            if ( obj && obj.material ) {
+              obj.material.wireframe = WIREFRAME;
+              obj.material.needsUpdate = true;
+            }
+          }
+        }
       };
     </script>
   </head>
