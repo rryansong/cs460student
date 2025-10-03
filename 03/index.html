@@ -72,15 +72,12 @@
               - ( ( e.clientY - rect.top ) / rect.height ) * 2 + 1
             );
 
-            // Unproject a point and cast a ray to the invisible plane to find placement position
-            var ndcPoint = new THREE.Vector3( ndc.x, ndc.y, 0.5 );
-            var worldPoint = ndcPoint.clone().unproject( camera );
-            var dir = worldPoint.sub( camera.position ).normalize();
+            // Build a canonical ray from camera through the mouse NDC and intersect the invisible plane
+            var raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera( ndc, camera );
+            var intersects = raycaster.intersectObject( invisible_plane, false );
 
-            var raycaster = new THREE.Raycaster( camera.position.clone(), dir );
-            var intersects = raycaster.intersectObject( invisible_plane );
-
-            if ( intersects.length === 0 ) {
+            if ( !intersects || intersects.length === 0 ) {
               controls.enabled = true;
               return;
             }
