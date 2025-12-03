@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>swordpoly</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<style>
+			html, body {
+				width: 100%;
+				height: 100%;
+				margin: 0;
+				padding: 0;
+				background: #000;
+				overflow: hidden;
+			}
+			canvas { display: block; }
+		</style>
+	</head>
+	<body>
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+					"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+				}
+			}
+		</script>
+		<script type="module">
+			import * as THREE from 'three';
+			import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+			import { AnaglyphEffect } from 'three/addons/effects/AnaglyphEffect.js';
+			import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+			let renderer, effect, scene, camera, controls;
+			let swordMesh = null;
+			// Webcam video
+			let videoEl;
+			let videoTexture;
+
+			function onWindowResize() {
+				const w = window.innerWidth;
+				const h = window.innerHeight;
+				camera.aspect = w / h;
+				camera.updateProjectionMatrix();
+				renderer.setSize(w, h);
+				effect.setSize(w, h);
+			}
+
+			function animate() {
+				requestAnimationFrame(animate);
+				// update video texture if ready
+				if (videoTexture) {
+					videoTexture.needsUpdate = true;
+				}
+				controls.update();
+				effect.render(scene, camera);
+			}
+
+			window.onload = () => {
+				renderer = new THREE.WebGLRenderer({ antialias: true });
+				renderer.setPixelRatio(window.devicePixelRatio);
+				renderer.setSize(window.innerWidth, window.innerHeight);
+				renderer.setClearColor(0x000000, 1);
+				document.body.appendChild(renderer.domElement);
+
+				const eyeSep = 0.001;
+				effect = new AnaglyphEffect(renderer, eyeSep);
+				effect.setSize(window.innerWidth, window.innerHeight);
+
+				scene = new THREE.Scene();
+
+				camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
+				camera.position.set(0, 10, 0);
+
+				// Basic lights
+				const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+				dirLight.position.set(5, 10, 7.5);
+				scene.add(dirLight);
+
+				const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
+				scene.add(ambientLight);
+
+				controls = new OrbitControls(camera, renderer.domElement);
+				controls.enableDamping = true;
+				controls.dampingFactor = 0.05;
+
+				// Initialize webcam background
+				videoEl = document.createElement('video');
+				videoEl.autoplay = true;
+				videoEl.muted = true;
+				videoEl.playsInline = true;
+				navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+					.then((stream) => {
+						videoEl.srcObject = stream;
+						videoEl.onloadedmetadata = () => {
+							videoEl.play();
+							videoTexture = new THREE.VideoTexture(videoEl);
+							videoTexture.colorSpace = THREE.SRGBColorSpace;
+							videoTexture.minFilter = THREE.LinearFilter;
+							videoTexture.magFilter = THREE.LinearFilter;
+							videoTexture.format = THREE.RGBAFormat;
+							scene.background = videoTexture;
+						};
+					})
+					.catch((err) => {
+						console.error('Webcam access denied or failed:', err);
+					});
+
+
+				// Load swordpoly.glb model
+				const loader = new GLTFLoader();
+				loader.load(
+					'swordpoly.glb',
+					(gltf) => {
+						const sword = gltf.scenes?.[0]?.children?.[0] ?? gltf.scene;
+						if (sword) {
+							// Reset rotation to identity
+							sword.quaternion.set(0, 0, 0, 1);
+							// Scale for visibility (bigger)
+							sword.scale.set(100, 100, 100);
+							// Slight lift
+							sword.position.y = 0;
+							scene.add(sword);
+							swordMesh = sword;
+						} else {
+							console.warn('GLTF loaded but no child mesh found (swordpoly.glb)');
+						}
+					},
+					undefined,
+					(error) => {
+						console.error('Error loading swordpoly.glb:', error);
+					}
+				);
+
+				window.addEventListener('resize', onWindowResize);
+				animate();
+			};
+		</script>
+	</body>
+</html>

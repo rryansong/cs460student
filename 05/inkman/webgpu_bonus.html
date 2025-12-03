@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Babylon WebGPU BONUS - Gold PBR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: #000;
+        overflow: hidden;
+      }
+      canvas { display: block; width: 100%; height: 100%; }
+      #ui { position: fixed; top: 10px; left: 10px; background: #111a; color: #fff; padding: 8px; font-family: sans-serif; z-index: 10; }
+      #ui label { display: block; margin-top: 6px; }
+    </style>
+    <!-- Babylon.js core and glTF loader -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylon.glTF2FileLoader.min.js"></script>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+    <div id="ui">
+      <button id="recenterBtn">Re-center Camera</button>
+      <label>Roughness <input id="roughness" type="range" min="0" max="1" step="0.01" value="0.2" /></label>
+      <label>Metallic <input id="metallic" type="range" min="0" max="1" step="0.01" value="1" /></label>
+    </div>
+    <script type="module">
+      const canvas = document.getElementById('renderCanvas');
+
+      // Prefer WebGPU; fall back to WebGL if unavailable
+      let engine;
+      try {
+        engine = new BABYLON.WebGPUEngine(canvas, { antialiasing: true });
+        await engine.initAsync();
+        console.log('Using WebGPU engine');
+      } catch (e) {
+        console.warn('WebGPU init failed, falling back to WebGL.', e);
+        engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+      }
+
+      const scene = new BABYLON.Scene(engine);
+
+      // Camera + light helpers
+      scene.createDefaultCameraOrLight(true, true, true);
+      const camera = scene.activeCamera;
+      camera.minZ = 0.1;
+      camera.maxZ = 10000;
+      camera.attachControl(canvas, true);
+
+      // Gold PBR material (Metallic/Roughness workflow)
+      const goldMat = new BABYLON.PBRMetallicRoughnessMaterial('gold', scene);
+      goldMat.baseColor = new BABYLON.Color3(1.0, 0.766, 0.336); // gold tint
+      goldMat.metallic = 1.0;
+      goldMat.roughness = 0.2;
+
+      // Helper to apply material to imported meshes
+      function applyMaterial(importResult, material) {
+        importResult.meshes.forEach(m => {
+          if (m.material) {
+            m.material = material;
+          }
+        });
+      }
+
+      // Load GLBs side-by-side using ImportMeshAsync
+      const polyImport = await BABYLON.SceneLoader.ImportMeshAsync('', '', 'poly.glb', scene);
+      const polyGroup = new BABYLON.TransformNode('polyRoot', scene);
+      polyImport.meshes.forEach(m => { if (m.parent === null) m.parent = polyGroup; });
+      polyGroup.position.x = -2;
+      polyGroup.scaling.set(10, 10, 10);
+      applyMaterial(polyImport, goldMat);
+
+      try {
+        const editedImport = await BABYLON.SceneLoader.ImportMeshAsync('', '', 'editedpoly.glb', scene);
+        const editedGroup = new BABYLON.TransformNode('editedRoot', scene);
+        editedImport.meshes.forEach(m => { if (m.parent === null) m.parent = editedGroup; });
+        editedGroup.position.x = 2;
+        editedGroup.scaling.set(10, 10, 10);
+        applyMaterial(editedImport, goldMat);
+      } catch (e) {
+        console.warn('editedpoly.glb not found or failed to load. Showing only poly.glb');
+      }
+
+      // Compute bounds and center camera
+      function centerCameraOnMeshes() {
+        const meshes = scene.meshes.filter(m => m.isVisible && m.getBoundingInfo);
+        if (!meshes.length) return;
+        let min = new BABYLON.Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+        let max = new BABYLON.Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
+        for (const m of meshes) {
+          const bb = m.getBoundingInfo().boundingBox;
+          min = BABYLON.Vector3.Minimize(min, bb.minimumWorld);
+          max = BABYLON.Vector3.Maximize(max, bb.maximumWorld);
+        }
+        const center = BABYLON.Vector3.Center(min, max);
+        const size = max.subtract(min);
+        const maxExtent = Math.max(size.x, size.y, size.z);
+        const desiredRadius = Math.max(1, maxExtent * 2.0);
+        camera.setTarget(center);
+        if ('radius' in camera) camera.radius = desiredRadius;
+      }
+
+      centerCameraOnMeshes();
+
+      // UI bindings for PBR params
+      const roughnessSlider = document.getElementById('roughness');
+      const metallicSlider = document.getElementById('metallic');
+      if (roughnessSlider) {
+        roughnessSlider.addEventListener('input', (ev) => {
+          const v = parseFloat(ev.target.value);
+          if (!Number.isNaN(v)) goldMat.roughness = v;
+        });
+      }
+      if (metallicSlider) {
+        metallicSlider.addEventListener('input', (ev) => {
+          const v = parseFloat(ev.target.value);
+          if (!Number.isNaN(v)) goldMat.metallic = v;
+        });
+      }
+
+      const recenterBtn = document.getElementById('recenterBtn');
+      if (recenterBtn) recenterBtn.addEventListener('click', centerCameraOnMeshes);
+
+      // Render loop and resize
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener('resize', () => engine.resize());
+    </script>
+  </body>
+</html>

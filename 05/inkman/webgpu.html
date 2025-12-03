@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Babylon WebGPU - poly.glb</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<style>
+			html, body {
+				width: 100%;
+				height: 100%;
+				margin: 0;
+				padding: 0;
+				background: #000;
+				overflow: hidden;
+			}
+			canvas { display: block; width: 100%; height: 100%; }
+		</style>
+		<!-- Babylon.js core and glTF loader -->
+		<script src="https://cdn.babylonjs.com/babylon.js"></script>
+		<script src="https://cdn.babylonjs.com/loaders/babylon.glTF2FileLoader.min.js"></script>
+	</head>
+	<body>
+		<canvas id="renderCanvas"></canvas>
+		<div id="ui" style="position:fixed;top:10px;left:10px;background:#111a;color:#fff;padding:8px;font-family:sans-serif;z-index:10">
+			<div>
+				<label>Light <input id="lightIntensity" type="range" min="0" max="2" step="0.01" value="1" /></label>
+			</div>
+			<div style="margin-top:6px">
+				<label>Orbit Speed <input id="orbitSpeed" type="range" min="0.1" max="10" step="0.1" value="1" /></label>
+			</div>
+			<div style="margin-top:6px">
+				<button id="recenterBtn">Re-center Camera</button>
+			</div>
+		</div>
+		<script type="module">
+			const canvas = document.getElementById('renderCanvas');
+
+			// Prefer WebGPU; fall back to WebGL if unavailable
+			let engine;
+			try {
+				engine = new BABYLON.WebGPUEngine(canvas, { antialiasing: true });
+				await engine.initAsync();
+				console.log('Using WebGPU engine');
+			} catch (e) {
+				console.warn('WebGPU init failed, falling back to WebGL.', e);
+				engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+			}
+
+			const scene = new BABYLON.Scene(engine);
+
+			// Camera + light helpers
+			scene.createDefaultCameraOrLight(true, true, true);
+			const camera = scene.activeCamera;
+			camera.minZ = 0.1;
+			camera.maxZ = 10000;
+			camera.attachControl(canvas, true);
+
+			// Load GLBs side-by-side using ImportMeshAsync for better control
+			const polyImport = await BABYLON.SceneLoader.ImportMeshAsync('', '', 'poly.glb', scene);
+			const polyGroup = new BABYLON.TransformNode('polyRoot', scene);
+			polyImport.meshes.forEach(m => { if (m.parent === null) m.parent = polyGroup; });
+			polyGroup.position.x = -2;
+			polyGroup.scaling.set(10, 10, 10);
+
+			// Try to load editedpoly.glb if present; otherwise skip gracefully
+			try {
+				const editedImport = await BABYLON.SceneLoader.ImportMeshAsync('', '', 'editedpoly.glb', scene);
+				const editedGroup = new BABYLON.TransformNode('editedRoot', scene);
+				editedImport.meshes.forEach(m => { if (m.parent === null) m.parent = editedGroup; });
+				editedGroup.position.x = 2;
+				editedGroup.scaling.set(10, 10, 10);
+			} catch (e) {
+				console.warn('editedpoly.glb not found or failed to load. Showing only poly.glb');
+			}
+
+			// Helper: center camera on loaded meshes
+			function centerCameraOnMeshes() {
+				const meshes = scene.meshes.filter(m => m.isVisible && m.getBoundingInfo);
+				if (!meshes.length) return;
+				let min = new BABYLON.Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+				let max = new BABYLON.Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
+				for (const m of meshes) {
+					const bb = m.getBoundingInfo().boundingBox;
+					min = BABYLON.Vector3.Minimize(min, bb.minimumWorld);
+					max = BABYLON.Vector3.Maximize(max, bb.maximumWorld);
+				}
+				const center = BABYLON.Vector3.Center(min, max);
+				const size = max.subtract(min);
+				const maxExtent = Math.max(size.x, size.y, size.z);
+				const desiredRadius = Math.max(1, maxExtent * 2.0);
+				if (camera && camera.setTarget) {
+					camera.setTarget(center);
+					if ('radius' in camera) camera.radius = desiredRadius;
+				}
+			}
+
+			// Center once after load
+			centerCameraOnMeshes();
+
+			// UI bindings
+			const light = scene.lights[0];
+			const lightSlider = document.getElementById('lightIntensity');
+			if (light && lightSlider) {
+				lightSlider.value = String(light.intensity ?? 1);
+				lightSlider.addEventListener('input', (ev) => {
+					const v = parseFloat(ev.target.value);
+					if (!Number.isNaN(v)) light.intensity = v;
+				});
+			}
+
+			const speedSlider = document.getElementById('orbitSpeed');
+			if (camera && speedSlider) {
+				speedSlider.addEventListener('input', (ev) => {
+					const v = parseFloat(ev.target.value);
+					if (Number.isNaN(v)) return;
+					camera.angularSensibilityX = 1000 / v;
+					camera.angularSensibilityY = 1000 / v;
+					camera.wheelPrecision = 50 / v; // scroll speed
+					camera.inertia = Math.min(0.99, v / 10); // smoothing
+				});
+			}
+
+			// Recenter button
+			const recenterBtn = document.getElementById('recenterBtn');
+			if (recenterBtn) recenterBtn.addEventListener('click', centerCameraOnMeshes);
+
+			// Render loop and resize
+			engine.runRenderLoop(() => scene.render());
+			window.addEventListener('resize', () => engine.resize());
+		</script>
+	</body>
+</html>
