@@ -168,7 +168,6 @@ fn fs_main() -> @location(0) vec4<f32> {
       });
       device.queue.writeBuffer(ibuf, 0, indicesPadded.buffer, indicesPadded.byteOffset, indicesPadded.byteLength);
 
-      // Uniforms: 4x4 matrix (64 bytes) + color (16 bytes) = 80 bytes
       const uniformBufferSize = 80;
       // Eye vertex buffer (we'll rewrite it per-fish each frame)
       const eyeBuffer = device.createBuffer({
@@ -176,7 +175,7 @@ fn fs_main() -> @location(0) vec4<f32> {
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
 
-      // Scene setup -----------------------------------------------------
+      // Scene setup 
       const all_fish = [];
       // helper constructors
       const f32 = (...v) => new Float32Array(v);
@@ -327,11 +326,8 @@ fn fs_main() -> @location(0) vec4<f32> {
         for (let r = 0; r < all_fish.length; r++) {
           const f = all_fish[r];
           const ex = 0.2;
-          // Keep the eye on the "top" side regardless of direction and rotation.
-          // Use the sign of the y-scale term (m[5]) of the body transform to detect vertical flip.
-          const syTerm = f._m ? f._m[5] : 1; // m[5] = d*scale*cos(theta)
+          const syTerm = f._m ? f._m[5] : 1;
           const ey = 0.2 * (syTerm < 0 ? -1 : 1);
-          // Match WebGL eye size: gl_PointSize = 20.0 * scale (pixels)
           const px = 20 * f.scale;
           const hx_ndc = px / canvas.width;
           const hy_ndc = px / canvas.height;
